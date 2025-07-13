@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Battery Status</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 1em;
+      background: #f4f4f4;
+    }
+    #container {
+      background: white;
+      padding: 1em;
+      border-radius: 8px;
+      max-width: 500px;
+      margin: auto;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    p {
+      font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <h1>Battery Info</h1>
+    <p id="level">Battery Level: unknown</p>
+    <p id="charging">Charging: unknown</p>
+  </div>
+
+  <script>
+    if ('getBattery' in navigator) {
+      navigator.getBattery().then(battery => {
+        function updateBatteryStatus() {
+          document.getElementById('level').textContent =
+            "Battery Level: " + Math.round(battery.level * 100) + "%";
+          document.getElementById('charging').textContent =
+            "Charging: " + (battery.charging ? "Yes" : "No");
+        }
+
+        updateBatteryStatus();
+
+        battery.addEventListener('levelchange', updateBatteryStatus);
+        battery.addEventListener('chargingchange', updateBatteryStatus);
+      });
+    } else {
+      document.getElementById('container').innerHTML =
+        "<p style='color: red;'>Battery API not supported in this browser.</p>";
+    }
+  </script>
+</body>
+</html>
