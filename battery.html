@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Charger Tester</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #f4f4f4;
+      padding: 1em;
+    }
+    #container {
+      background: #fff;
+      padding: 1em;
+      border-radius: 8px;
+      max-width: 650px;
+      margin: auto;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+    }
+    #chargingStatus, #countdownTimer, #testResult {
+      font-size: 1.2em;
+      text-align: center;
+      margin: 0.5em 0;
+    }
+    #startBtn {
+      display: block;
+      margin: 1em auto;
+      padding: 0.5em 1em;
+      font-size: 1em;
+      border: none;
+      border-radius: 4px;
+      color: white;
+    }
+    #startBtn.red {
+      background-color: #d9534f;
+    }
+    #startBtn.green {
+      background-color: #5cb85c;
+    }
+    #startBtn.blinking {
+      animation: blinker 1s linear infinite;
+      background-color: #5cb85c;
+    }
+    @keyframes blinker {
+      50% { opacity: 0.4; }
+    }
+    #deltaTableWrapper {
+      margin-top: 1.5em;
+      text-align: center;
+    }
+    table#deltaTable {
+      margin: 0 auto;
+      border-collapse: collapse;
+    }
+    #deltaTable td, #deltaTable th {
+      border: 1px solid #ccc;
+      padding: 0.4em 0.6em;
+      width: 60px;
+      text-align: center;
+      background-color: #eee;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <h1>Charger Test Logger</h1>
+    <div id="chargingStatus">Charging: Unknown</div>
+    <div id="countdownTimer"></div>
+    <button id="startBtn" class="red" disabled>Connect Charger to Begin</button>
+
+    <div id="deltaTableWrapper">
+      <div>Rate Deltas (%/min)</div>
+      <table id="deltaTable">
+        <tr id="deltaRow">
+          <!-- Cells inserted by JS -->
+        </tr>
+      </table>
+    </div>
+
+    <div id="testResult">???</div>
+  </div>
+
+  <script>
+    const TOTAL_INTERVALS = 12;
+    let batteryRef = null;
+    let countdownInterval = null;
+    let pollInterval = null;
+    let started = false;
+    let readings = [];
+    let startTime = null;
+
+    const DURATION_MS = 60000;
+    const DELTA_INTERVAL_MS = 5000;
+
+    const statusEl = document.getElementById("chargingStatus");
+    const timerEl = document.getElementById("countdownTimer");
+    const startBtn = document.getElementById("startBtn");
+    const resultEl = document.getElementById("testResult");
+    const deltaRow = document.getElementById("deltaRow");
+
+    function initializeDeltaCells() {
+      deltaRow.innerHTML = "";
+      for (let i = 0; i < TOTAL_INTERVALS; i++) {
+        const cell = document.createElement("td");
+        cell.textContent = "";
+        deltaRow.appendChild(cell);
+      }
+    }
+
+    function updateChargingStatus(isCharging) {
+      if (isCharging) {
+        statusEl.textContent = "Connected";
+        if (!started) {
+          startBtn.disabled = false;
+          startBtn.textContent = "Begin Test";
+          startBtn.className = "green";
+        }
+      } else {
+        statusEl.textContent = "Disconnected";
+        startBtn.disabled = true;
+        if (started) {
+          startBtn.textContent = "Test Aborted!";
+          startBtn.className = "red";
+          resetTest("???");
+        } else {
+          startBtn.textContent = "Connect Charger to Begin";
+          startBtn.className = "red";
+          resultEl.textContent = "???";
+        }
+      }
+    }
+
+    function resetTest(message) {
+      started = false;
+      clearInterval(countdownInterval);
+      clearInterval(pollInterval);
+      timerEl.textContent = "";
+      readings = [];
+      resultEl.textContent = message;
+      initializeDeltaCells();
+
+      if (batteryRef?.charging) {
+        startBtn.disabled = false;
+        startBtn.textContent = "Begin Test";
+        startBtn.className = "green";
+      } else {
+        startBtn.disabled = true;
+        startBtn.textContent = "Connect Charger to Begin";
+        startBtn.className = "red";
+      }
+    }
+
+    function startCountdownTest() {
+      resetTest("???");
+      readings = [];
+      started = true;
+      startTime = performance.now();
+      resultEl.textContent = "???";
+
+      startBtn.disabled = true;
+      startBtn.textContent = "Test in progress";
+      startBtn.className = "blinking";
+
+      readings.push({ level: +(batteryRef.level * 100).toFixed(2), time: Date.now() });
+
+      countdownInterval = setInterval(() => {
+        const elapsed = performance.now() - startTime;
+        const remaining = Math.max(0, DURATION_MS - elapsed);
+        const sec = Math.floor(remaining / 1000);
+        const ms = Math.floor(remaining % 1000).toString().padStart(3, '0');
+        timerEl.textContent = `Time Remaining: ${sec}::${ms}`;
+
+        if (remaining <= 0) {
+          clearInterval(countdownInterval);
+          clearInterval(pollInterval);
+          finalizeTest();
+        }
+      }, 50);
+
+      pollInterval = setInterval(() => {
+        if (batteryRef && started) {
+          const now = Date.now();
+          const level = +(batteryRef.level * 100).toFixed(2);
+          readings.push({ level, time: now });
+
+          if (readings.length >= 2 && readings.length - 2 < TOTAL_INTERVALS) {
+            const i = readings.length - 2;
+            const prev = readings[i];
+            const delta = (level - prev.level) / ((now - prev.time) / 60000);
+            const cell = deltaRow.children[i];
+            if (cell) {
+              cell.textContent = delta.toFixed(2);
+            }
+          }
+        }
+      }, DELTA_INTERVAL_MS);
+    }
+
+    function finalizeTest() {
+      started = false;
+      clearInterval(countdownInterval);
+      clearInterval(pollInterval);
+      startBtn.textContent = "Begin Test";
+      startBtn.className = batteryRef?.charging ? "green" : "red";
+      startBtn.disabled = !batteryRef?.charging;
+
+      if (readings.length < 2) {
+        resultEl.textContent = "???";
+        return;
+      }
+
+      let deltaSum = 0;
+      let timeSum = 0;
+      for (let i = 1; i < readings.length; i++) {
+        const dLevel = readings[i].level - readings[i - 1].level;
+        const dTime = (readings[i].time - readings[i - 1].time) / 60000;
+        if (dTime > 0) {
+          deltaSum += dLevel / dTime;
+          timeSum += 1;
+        }
+      }
+
+      const averageRate = deltaSum / timeSum;
+      const currentLevel = readings[readings.length - 1].level;
+      resultEl.textContent = `Test complete! Level: ${currentLevel.toFixed(2)}%, Avg Rate: ${averageRate.toFixed(2)} %/min`;
+    }
+
+    startBtn.addEventListener("click", () => {
+      if (batteryRef?.charging) {
+        startCountdownTest();
+      }
+    });
+
+    if ('getBattery' in navigator) {
+      navigator.getBattery().then(battery => {
+        batteryRef = battery;
+        updateChargingStatus(battery.charging);
+        initializeDeltaCells();
+        battery.addEventListener('chargingchange', () => {
+          updateChargingStatus(battery.charging);
+        });
+      });
+    } else {
+      statusEl.textContent = "Battery API not supported in this browser.";
+    }
+  </script>
+</body>
+</html>
